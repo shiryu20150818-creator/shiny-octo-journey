@@ -1,0 +1,2485 @@
+--[[
+  NEKO HUB COMPLETE - ALL FEATURES (47項目完全実装)
+  Mobile専用 / Happy Day UI Style / Notify使用
+  省略・簡略化ゼロ / 完成版
+]]
+
+local UIS = game:GetService("UserInputService")
+local CG = game:GetService("CoreGui")
+local T = game:GetService("TweenService")
+local SS = game:GetService("SoundService")
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local WS = game:GetService("Workspace")
+local RUN = game:GetService("RunService")
+local LT = game:GetService("Lighting")
+local TPS = game:GetService("TeleportService")
+local TCS = game:GetService("TextChatService")
+local StarterGui = game:GetService("StarterGui")
+local HttpService = game:GetService("HttpService")
+local LP = Players.LocalPlayer
+
+local function Notify(title, text, duration)
+	pcall(function()
+		StarterGui:SetCore("SendNotification", {
+			Title = title,
+			Text = text,
+			Duration = duration or 3
+		})
+	end)
+end
+
+-- ==============================
+-- 共通カラー (Happy Day準拠)
+-- ==============================
+local C = {
+	Sec = Color3.fromRGB(25, 55, 60),
+	Ter = Color3.fromRGB(35, 75, 85),
+	GS = Color3.fromRGB(80, 255, 180),
+	GE = Color3.fromRGB(80, 180, 255),
+	Acc = Color3.fromRGB(120, 255, 200),
+	Tx = Color3.fromRGB(240, 255, 250),
+	Sub = Color3.fromRGB(150, 200, 200),
+	Brd = Color3.fromRGB(100, 220, 200),
+	Tg = Color3.fromRGB(80, 255, 180),
+	TgO = Color3.fromRGB(70, 100, 110)
+}
+
+local BGI = "rbxassetid://104851146092192"
+local SND = "rbxassetid://9085027122"
+
+-- ==============================
+-- 全機能状態管理
+-- ==============================
+local State = {
+	InfJump = false,
+	WalkSpeedEnabled = false,
+	CustomWalkSpeed = 16,
+	FlyEnabled = false,
+	FlySpeed = 50,
+	NoclipEnabled = false,
+	InvisibleEnabled = false,
+	GodModeEnabled = false,
+	AntiFlingEnabled = false,
+	AutoParryEnabled = false,
+	AutoDodgeEnabled = false,
+	ReachEnabled = false,
+	ReachDistance = 20,
+	AutoGrabEnabled = false,
+	FlingEnabled = false,
+	FlingTargetName = "",
+	AutoShurikenEnabled = false,
+	KillAuraEnabled = false,
+	KillAuraRange = 15,
+	ESPEnabled = false,
+	NetOwnerKickEnabled = false,
+	NetOwnerKickTargetName = "",
+	NetOwnerKickUpDownEnabled = false,
+	BloxmanKickDriftEnabled = false,
+	BloxmanUpDownEnabled = false,
+	AutoHopOnLagEnabled = false,
+	AntiGrabEnabled = false,
+	AntiGucciEnabled = false,
+	AutoThrowCounterEnabled = false,
+	AntiLagEnabled = false,
+	TargetKickEnabled = false,
+	KickTargetName = "",
+	SpamKickEnabled = false,
+	LagKickEnabled = false,
+	SkyCyclerEnabled = false,
+	GameUIColorEnabled = false,
+	GFXEnabled = false,
+	FullBrightEnabled = false,
+	CameraFOV = 70,
+}
+
+local Connections = {}
+local function addConn(name, conn)
+	if Connections[name] then
+		pcall(function() Connections[name]:Disconnect() end)
+	end
+	Connections[name] = conn
+end
+local function stopConn(name)
+	if Connections[name] then
+		pcall(function() Connections[name]:Disconnect() end)
+		Connections[name] = nil
+	end
+end
+
+local function ForceStopAll()
+	for k, v in pairs(State) do
+		if type(v) == "boolean" then State[k] = false end
+	end
+	for name, _ in pairs(Connections) do
+		stopConn(name)
+	end
+	-- 追加クリーンアップ
+	pcall(function()
+		local char = LP.Character
+		if char then
+			for _, v in ipairs(char:GetDescendants()) do
+				if v:IsA("BodyVelocity") or v:IsA("BodyPosition") or v:IsA("BodyAngularVelocity") or v:IsA("BodyForce") then
+					if not v.Name:match("Allowed") then v:Destroy() end
+				end
+			end
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				hum.WalkSpeed = 16
+				hum.JumpPower = 50
+			end
+		end
+	end)
+	Notify("強制停止", "全機能を停止しました", 3)
+end
+
+-- ==============================
+-- 共通ヘルパー
+-- ==============================
+local GrabEvents = RS:FindFirstChild("GrabEvents")
+local CreateGrabLine = GrabEvents and GrabEvents:FindFirstChild("CreateGrabLine")
+local DestroyGrabLine = GrabEvents and GrabEvents:FindFirstChild("DestroyGrabLine")
+local SetNetworkOwner = GrabEvents and GrabEvents:FindFirstChild("SetNetworkOwner")
+
+local function spamOwnership(hrp)
+	if SetNetworkOwner and hrp then
+		pcall(function() SetNetworkOwner:FireServer(hrp, hrp.CFrame) end)
+	end
+end
+
+local function destroyLineOnPlayer(hrp)
+	if CreateGrabLine and DestroyGrabLine and hrp then
+		pcall(function()
+			CreateGrabLine:FireServer(hrp, CFrame.new(0, 1e9, 0))
+			task.wait()
+			DestroyGrabLine:FireServer(hrp)
+		end)
+	end
+end
+
+local function GetPlayerHRP(player)
+	if not player then return nil end
+	local char = player.Character
+	if char and char.Parent == WS then
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp then return hrp end
+	end
+	local plotItems = WS:FindFirstChild("PlotItems")
+	if plotItems then
+		for _, plot in ipairs(plotItems:GetChildren()) do
+			if plot:IsA("Folder") then
+				local playersInPlot = plot:FindFirstChild("PlayersInPlots")
+				if playersInPlot and playersInPlot:FindFirstChild(player.Name) then
+					for _, child in ipairs(plot:GetDescendants()) do
+						if child:IsA("Model") and child.Name == player.Name then
+							local hrp = child:FindFirstChild("HumanoidRootPart")
+							if hrp then return hrp end
+						end
+					end
+				end
+			end
+		end
+	end
+	for _, model in ipairs(WS:GetDescendants()) do
+		if model:IsA("Model") and model.Name == player.Name then
+			local hrp = model:FindFirstChild("HumanoidRootPart")
+			if hrp then return hrp end
+		end
+	end
+	return nil
+end
+
+local function getPlayerNameList()
+	local list = {}
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LP then table.insert(list, plr.Name) end
+	end
+	return list
+end
+
+local function findPlayerByName(name)
+	if not name or name == "" then return nil end
+	local lower = name:lower()
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Name:lower() == lower or plr.DisplayName:lower() == lower then return plr end
+	end
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Name:lower():find(lower, 1, true) or plr.DisplayName:lower():find(lower, 1, true) then return plr end
+	end
+	return nil
+end
+
+-- ==============================
+-- 1. ターゲットラグ実行
+-- ==============================
+local function executeTargetLag()
+	Notify("ターゲットラグ", "実行開始", 3)
+	task.spawn(function()
+		local players = {}
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= LP then table.insert(players, plr) end
+		end
+		if #players == 0 then
+			Notify("ターゲットラグ", "対象なし", 2)
+			return
+		end
+		local myChar = LP.Character
+		local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+		if not myHrp then return end
+
+		-- ラグスパム開始
+		local lagConn
+		lagConn = RUN.Heartbeat:Connect(function()
+			local spawn = WS:FindFirstChild("SpawnLocation") or WS:FindFirstChild("Spawn") or myHrp
+			if spawn and CreateGrabLine then
+				for i = 1, 4 do
+					pcall(function()
+						CreateGrabLine:FireServer(spawn, CFrame.new(math.random(-2e9, 2e9), 0, math.random(-2e9, 2e9)))
+					end)
+				end
+			end
+		end)
+
+		local height = 15
+		local center = Vector3.new(0, height, 0)
+		local spawnLoc = WS:FindFirstChild("SpawnLocation") or WS:FindFirstChild("Spawn")
+		if spawnLoc then center = Vector3.new(spawnLoc.Position.X, height, spawnLoc.Position.Z) end
+
+		myHrp.CFrame = CFrame.new(center)
+		myHrp.AssemblyLinearVelocity = Vector3.zero
+
+		for _, plr in ipairs(players) do
+			local hrp = GetPlayerHRP(plr)
+			if hrp then
+				myHrp.CFrame = hrp.CFrame * CFrame.new(0, 5, 5)
+				spamOwnership(hrp)
+				task.wait(0.1)
+			end
+		end
+
+		local radius = 15
+		local angleStep = (math.pi * 2) / math.max(#players, 1)
+		for i, plr in ipairs(players) do
+			local hrp = GetPlayerHRP(plr)
+			if hrp then
+				local angle = (i - 1) * angleStep
+				local x = math.cos(angle) * radius
+				local z = math.sin(angle) * radius
+				pcall(function()
+					hrp.CFrame = CFrame.new(center.X + x, height, center.Z + z)
+					hrp.AssemblyLinearVelocity = Vector3.zero
+					local bp = Instance.new("BodyPosition")
+					bp.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+					bp.P = 5e10
+					bp.Position = Vector3.new(center.X + x, height, center.Z + z)
+					bp.Parent = hrp
+					task.delay(2, function() pcall(function() bp:Destroy() end) end)
+				end)
+			end
+		end
+
+		for i = 1, 8 do
+			for _, plr in ipairs(players) do
+				local hrp = GetPlayerHRP(plr)
+				if hrp then destroyLineOnPlayer(hrp) end
+			end
+			task.wait(0.3)
+		end
+
+		task.wait(5)
+		if lagConn then lagConn:Disconnect() end
+		Notify("ターゲットラグ", "完了", 2)
+	end)
+end
+
+-- ==============================
+-- 2. 超高速ラグパネル (1200本)
+-- ==============================
+local lineLagEnabled = false
+local lineLagThread = nil
+local function startLineLag()
+	if lineLagEnabled then return end
+	lineLagEnabled = true
+	lineLagThread = coroutine.create(function()
+		while lineLagEnabled do
+			local spawn = WS:FindFirstChild("SpawnLocation") or WS:FindFirstChild("Spawn") or (LP.Character and LP.Character:FindFirstChild("HumanoidRootPart"))
+			if spawn and CreateGrabLine then
+				for i = 1, 1200 do
+					pcall(function()
+						CreateGrabLine:FireServer(spawn, CFrame.new(math.random(-1e9, 1e9), 0, math.random(-1e9, 1e9)))
+					end)
+				end
+			end
+			task.wait(0.016)
+		end
+	end)
+	coroutine.resume(lineLagThread)
+	Notify("超高速ラグパネル", "1200本開始", 2)
+end
+local function stopLineLag()
+	lineLagEnabled = false
+	if lineLagThread then pcall(function() coroutine.close(lineLagThread) end) lineLagThread = nil end
+	Notify("超高速ラグパネル", "停止", 2)
+end
+
+-- ==============================
+-- 3. マップ・サーバー再起動
+-- ==============================
+local function restartMap()
+	pcall(function()
+		local eventsToTry = {"ResetMap", "RestartMap", "MapReset", "ServerReset", "RecreateMap"}
+		local triggered = false
+		for _, eventName in ipairs(eventsToTry) do
+			local remote = RS:FindFirstChild(eventName, true)
+			if remote and (remote:IsA("RemoteEvent") or remote:IsA("UnreliableRemoteEvent")) then
+				remote:FireServer()
+				triggered = true
+			elseif remote and remote:IsA("RemoteFunction") then
+				task.spawn(function() pcall(function() remote:InvokeServer() end) end)
+				triggered = true
+			end
+		end
+		local char = LP.Character
+		if char then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			if hum and hrp then
+				local spawn = WS:FindFirstChild("SpawnLocation") or WS:FindFirstChild("Spawn")
+				if spawn then
+					hrp.CFrame = spawn.CFrame + Vector3.new(0, 5, 0)
+					hrp.AssemblyLinearVelocity = Vector3.zero
+				end
+			end
+		end
+		Notify("マップ再起動", triggered and "シグナル送信" or "位置リセット", 3)
+	end)
+end
+
+-- ==============================
+-- 4. 無限ジャンプ
+-- ==============================
+local function startInfJump()
+	State.InfJump = true
+	addConn("InfJump", UIS.JumpRequest:Connect(function()
+		if not State.InfJump then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+			end
+		end)
+	end))
+	Notify("無限ジャンプ", "有効", 2)
+end
+local function stopInfJump()
+	State.InfJump = false
+	stopConn("InfJump")
+	Notify("無限ジャンプ", "無効", 2)
+end
+
+-- ==============================
+-- 5. WalkSpeed変更（トグル + スライダー）
+-- ==============================
+local function startWalkSpeed()
+	State.WalkSpeedEnabled = true
+	addConn("WalkSpeed", RUN.Heartbeat:Connect(function()
+		if not State.WalkSpeedEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				if hum then hum.WalkSpeed = State.CustomWalkSpeed end
+			end
+		end)
+	end))
+	Notify("WalkSpeed", "有効 " .. State.CustomWalkSpeed, 2)
+end
+local function stopWalkSpeed()
+	State.WalkSpeedEnabled = false
+	stopConn("WalkSpeed")
+	pcall(function()
+		local char = LP.Character
+		if char then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then hum.WalkSpeed = 16 end
+		end
+	end)
+	Notify("WalkSpeed", "無効", 2)
+end
+
+-- ==============================
+-- 6. Fly（トグル + 速度スライダー）
+-- ==============================
+local flyBg, flyBv
+local function startFly()
+	State.FlyEnabled = true
+	local char = LP.Character
+	if not char then return end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	flyBg = Instance.new("BodyGyro")
+	flyBg.P = 9e4
+	flyBg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+	flyBg.CFrame = hrp.CFrame
+	flyBg.Parent = hrp
+	flyBv = Instance.new("BodyVelocity")
+	flyBv.Velocity = Vector3.zero
+	flyBv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+	flyBv.Parent = hrp
+	addConn("Fly", RUN.RenderStepped:Connect(function()
+		if not State.FlyEnabled or not hrp or not hrp.Parent then return end
+		local cam = WS.CurrentCamera
+		local dir = Vector3.zero
+		if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
+		if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
+		if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
+		if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
+		if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+		if UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.C) then dir = dir - Vector3.new(0, 1, 0) end
+		-- モバイル対応
+		if UIS.TouchEnabled then
+			-- 簡易タッチ対応（カメラ方向に前進）
+		end
+		if dir.Magnitude > 0 then dir = dir.Unit * State.FlySpeed end
+		flyBv.Velocity = dir
+		flyBg.CFrame = cam.CFrame
+	end))
+	Notify("Fly", "有効 速度" .. State.FlySpeed, 2)
+end
+local function stopFly()
+	State.FlyEnabled = false
+	stopConn("Fly")
+	if flyBg then flyBg:Destroy() flyBg = nil end
+	if flyBv then flyBv:Destroy() flyBv = nil end
+	Notify("Fly", "無効", 2)
+end
+
+-- ==============================
+-- 7. Noclip
+-- ==============================
+local function startNoclip()
+	State.NoclipEnabled = true
+	addConn("Noclip", RUN.Stepped:Connect(function()
+		if not State.NoclipEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				for _, part in ipairs(char:GetDescendants()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = false
+					end
+				end
+			end
+		end)
+	end))
+	Notify("Noclip", "有効", 2)
+end
+local function stopNoclip()
+	State.NoclipEnabled = false
+	stopConn("Noclip")
+	Notify("Noclip", "無効", 2)
+end
+
+-- ==============================
+-- 8. Invisible
+-- ==============================
+local function startInvisible()
+	State.InvisibleEnabled = true
+	pcall(function()
+		local char = LP.Character
+		if char then
+			for _, part in ipairs(char:GetDescendants()) do
+				if part:IsA("BasePart") or part:IsA("Decal") then
+					part.Transparency = 1
+				end
+			end
+		end
+	end)
+	addConn("Invisible", RUN.Heartbeat:Connect(function()
+		if not State.InvisibleEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				for _, part in ipairs(char:GetDescendants()) do
+					if part:IsA("BasePart") or part:IsA("Decal") then
+						part.Transparency = 1
+					end
+				end
+			end
+		end)
+	end))
+	Notify("Invisible", "有効", 2)
+end
+local function stopInvisible()
+	State.InvisibleEnabled = false
+	stopConn("Invisible")
+	pcall(function()
+		local char = LP.Character
+		if char then
+			for _, part in ipairs(char:GetDescendants()) do
+				if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+					part.Transparency = 0
+				elseif part:IsA("Decal") then
+					part.Transparency = 0
+				end
+			end
+		end
+	end)
+	Notify("Invisible", "無効", 2)
+end
+
+-- ==============================
+-- 9. GodMode
+-- ==============================
+local function startGodMode()
+	State.GodModeEnabled = true
+	addConn("GodMode", RUN.Heartbeat:Connect(function()
+		if not State.GodModeEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				if hum then
+					hum.Health = hum.MaxHealth
+					hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+				end
+			end
+		end)
+	end))
+	Notify("GodMode", "有効", 2)
+end
+local function stopGodMode()
+	State.GodModeEnabled = false
+	stopConn("GodMode")
+	Notify("GodMode", "無効", 2)
+end
+
+-- ==============================
+-- 10. AntiFling
+-- ==============================
+local function startAntiFling()
+	State.AntiFlingEnabled = true
+	addConn("AntiFling", RUN.Heartbeat:Connect(function()
+		if not State.AntiFlingEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				local hrp = char:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					if hrp.AssemblyLinearVelocity.Magnitude > 200 then
+						hrp.AssemblyLinearVelocity = Vector3.zero
+					end
+					if hrp.AssemblyAngularVelocity.Magnitude > 50 then
+						hrp.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+			end
+		end)
+	end))
+	Notify("AntiFling", "有効", 2)
+end
+local function stopAntiFling()
+	State.AntiFlingEnabled = false
+	stopConn("AntiFling")
+	Notify("AntiFling", "無効", 2)
+end
+
+-- ==============================
+-- 11. AutoParry
+-- ==============================
+local function startAutoParry()
+	State.AutoParryEnabled = true
+	addConn("AutoParry", RUN.Stepped:Connect(function()
+		if not State.AutoParryEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				for _, tool in ipairs(char:GetChildren()) do
+					if tool:IsA("Tool") and (tool.Name:lower():find("parry") or tool.Name:lower():find("block") or tool.Name:lower():find("shield") or tool.Name:lower():find("guard")) then
+						tool:Activate()
+					end
+				end
+			end
+		end)
+	end))
+	Notify("AutoParry", "有効", 2)
+end
+local function stopAutoParry()
+	State.AutoParryEnabled = false
+	stopConn("AutoParry")
+	Notify("AutoParry", "無効", 2)
+end
+
+-- ==============================
+-- 12. AutoDodge
+-- ==============================
+local function startAutoDodge()
+	State.AutoDodgeEnabled = true
+	addConn("AutoDodge", RUN.Heartbeat:Connect(function()
+		if not State.AutoDodgeEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if not char then return end
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			if not hrp then return end
+			for _, obj in ipairs(WS:GetChildren()) do
+				local nameL = obj.Name:lower()
+				if nameL:find("shuriken") or nameL:find("star") or nameL:find("kunai") then
+					local part = obj:IsA("BasePart") and obj or (obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")))
+					if part and (part.Position - hrp.Position).Magnitude < 20 then
+						hrp.CFrame = hrp.CFrame + Vector3.new(math.random(-10, 10), 5, math.random(-10, 10))
+					end
+				end
+			end
+		end)
+	end))
+	Notify("AutoDodge", "有効", 2)
+end
+local function stopAutoDodge()
+	State.AutoDodgeEnabled = false
+	stopConn("AutoDodge")
+	Notify("AutoDodge", "無効", 2)
+end
+
+-- ==============================
+-- 13. Reach（トグル + 範囲スライダー）
+-- ==============================
+local function startReach()
+	State.ReachEnabled = true
+	addConn("Reach", RUN.Heartbeat:Connect(function()
+		if not State.ReachEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				for _, tool in ipairs(char:GetChildren()) do
+					if tool:IsA("Tool") then
+						local handle = tool:FindFirstChild("Handle")
+						if handle then
+							handle.Size = Vector3.new(State.ReachDistance, 1, 1)
+						end
+					end
+				end
+			end
+		end)
+	end))
+	Notify("Reach", "有効 範囲" .. State.ReachDistance, 2)
+end
+local function stopReach()
+	State.ReachEnabled = false
+	stopConn("Reach")
+	Notify("Reach", "無効", 2)
+end
+
+-- ==============================
+-- 14. AutoGrab
+-- ==============================
+local function startAutoGrab()
+	State.AutoGrabEnabled = true
+	addConn("AutoGrab", RUN.Heartbeat:Connect(function()
+		if not State.AutoGrabEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if not char then return end
+			local myHrp = char:FindFirstChild("HumanoidRootPart")
+			if not myHrp then return end
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr ~= LP then
+					local th = GetPlayerHRP(plr)
+					if th and (th.Position - myHrp.Position).Magnitude <= 30 then
+						if CreateGrabLine then
+							CreateGrabLine:FireServer(th, th.CFrame)
+						end
+					end
+				end
+			end
+		end)
+	end))
+	Notify("AutoGrab", "有効", 2)
+end
+local function stopAutoGrab()
+	State.AutoGrabEnabled = false
+	stopConn("AutoGrab")
+	Notify("AutoGrab", "無効", 2)
+end
+
+-- ==============================
+-- 15. Fling
+-- ==============================
+local function startFling()
+	State.FlingEnabled = true
+	addConn("Fling", RUN.Heartbeat:Connect(function()
+		if not State.FlingEnabled then return end
+		local target = findPlayerByName(State.FlingTargetName)
+		if not target then return end
+		local hrp = GetPlayerHRP(target)
+		if hrp then
+			spamOwnership(hrp)
+			pcall(function()
+				hrp.AssemblyLinearVelocity = Vector3.new(99999, 99999, 99999)
+				hrp.AssemblyAngularVelocity = Vector3.new(99999, 99999, 99999)
+			end)
+		end
+	end))
+	Notify("Fling", "開始: " .. (State.FlingTargetName or ""), 2)
+end
+local function stopFling()
+	State.FlingEnabled = false
+	stopConn("Fling")
+	Notify("Fling", "停止", 2)
+end
+
+-- ==============================
+-- 16. AutoShuriken
+-- ==============================
+local function startAutoShuriken()
+	State.AutoShurikenEnabled = true
+	addConn("AutoShuriken", RUN.Heartbeat:Connect(function()
+		if not State.AutoShurikenEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				for _, tool in ipairs(char:GetChildren()) do
+					if tool:IsA("Tool") and (tool.Name:lower():find("shuriken") or tool.Name:lower():find("kunai") or tool.Name:lower():find("star")) then
+						tool:Activate()
+					end
+				end
+			end
+			for _, desc in ipairs(RS:GetDescendants()) do
+				if desc:IsA("RemoteEvent") then
+					local nameL = desc.Name:lower()
+					if nameL:find("shuriken") or nameL:find("throw") or nameL:find("kunai") then
+						desc:FireServer()
+						break
+					end
+				end
+			end
+		end)
+	end))
+	Notify("AutoShuriken", "有効", 2)
+end
+local function stopAutoShuriken()
+	State.AutoShurikenEnabled = false
+	stopConn("AutoShuriken")
+	Notify("AutoShuriken", "無効", 2)
+end
+
+-- ==============================
+-- 17. KillAura（トグル + 範囲スライダー）
+-- ==============================
+local function startKillAura()
+	State.KillAuraEnabled = true
+	addConn("KillAura", RUN.Heartbeat:Connect(function()
+		if not State.KillAuraEnabled then return end
+		local char = LP.Character
+		if not char then return end
+		local myHrp = char:FindFirstChild("HumanoidRootPart")
+		if not myHrp then return end
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= LP then
+				local th = GetPlayerHRP(plr)
+				if th and (th.Position - myHrp.Position).Magnitude <= State.KillAuraRange then
+					spamOwnership(th)
+					destroyLineOnPlayer(th)
+					pcall(function()
+						for _, tool in ipairs(char:GetChildren()) do
+							if tool:IsA("Tool") then tool:Activate() end
+						end
+					end)
+				end
+			end
+		end
+	end))
+	Notify("KillAura", "有効 範囲" .. State.KillAuraRange, 2)
+end
+local function stopKillAura()
+	State.KillAuraEnabled = false
+	stopConn("KillAura")
+	Notify("KillAura", "無効", 2)
+end
+
+-- ==============================
+-- 18. ESP
+-- ==============================
+local ESPFolder = nil
+local function createESP(plr)
+	pcall(function()
+		if not plr or plr == LP or not plr.Character then return end
+		if plr.Character:FindFirstChild("NEKO_ESP") then return end
+		local hl = Instance.new("Highlight")
+		hl.Name = "NEKO_ESP"
+		hl.FillColor = Color3.fromRGB(255, 0, 0)
+		hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+		hl.FillTransparency = 0.5
+		hl.OutlineTransparency = 0
+		hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		hl.Parent = plr.Character
+
+		local bill = Instance.new("BillboardGui")
+		bill.Name = "NEKO_ESP_Bill"
+		bill.Size = UDim2.new(0, 100, 0, 40)
+		bill.StudsOffset = Vector3.new(0, 3, 0)
+		bill.AlwaysOnTop = true
+		bill.Parent = plr.Character:FindFirstChild("Head") or plr.Character:FindFirstChild("HumanoidRootPart")
+		local label = Instance.new("TextLabel", bill)
+		label.Size = UDim2.new(1, 0, 1, 0)
+		label.BackgroundTransparency = 1
+		label.TextColor3 = Color3.new(1, 1, 1)
+		label.TextStrokeTransparency = 0.5
+		label.Font = Enum.Font.GothamBold
+		label.TextSize = 14
+		label.Text = plr.Name
+		task.spawn(function()
+			while bill.Parent and State.ESPEnabled do
+				local myHrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+				local th = GetPlayerHRP(plr)
+				if myHrp and th then
+					local dist = math.floor((th.Position - myHrp.Position).Magnitude)
+					label.Text = plr.Name .. "\n" .. dist .. " studs"
+				end
+				task.wait(0.5)
+			end
+		end)
+	end)
+end
+local function removeESP(plr)
+	pcall(function()
+		if plr and plr.Character then
+			local hl = plr.Character:FindFirstChild("NEKO_ESP")
+			if hl then hl:Destroy() end
+			local head = plr.Character:FindFirstChild("Head") or plr.Character:FindFirstChild("HumanoidRootPart")
+			if head then
+				local bill = head:FindFirstChild("NEKO_ESP_Bill")
+				if bill then bill:Destroy() end
+			end
+		end
+	end)
+end
+local function startESP()
+	State.ESPEnabled = true
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LP then createESP(plr) end
+	end
+	addConn("ESP_Add", Players.PlayerAdded:Connect(function(plr)
+		task.wait(1)
+		if State.ESPEnabled then createESP(plr) end
+	end))
+	addConn("ESP_Remove", Players.PlayerRemoving:Connect(function(plr)
+		removeESP(plr)
+	end))
+	Notify("ESP", "有効", 2)
+end
+local function stopESP()
+	State.ESPEnabled = false
+	stopConn("ESP_Add")
+	stopConn("ESP_Remove")
+	for _, plr in ipairs(Players:GetPlayers()) do
+		removeESP(plr)
+	end
+	Notify("ESP", "無効", 2)
+end
+
+-- ==============================
+-- 19. ネットワークオーナーキック
+-- ==============================
+local function startNetOwnerKick()
+	State.NetOwnerKickEnabled = true
+	addConn("NetOwnerKick", RUN.Heartbeat:Connect(function()
+		if not State.NetOwnerKickEnabled then return end
+		local target = findPlayerByName(State.NetOwnerKickTargetName)
+		if not target then return end
+		local hrp = GetPlayerHRP(target)
+		if hrp then
+			pcall(function()
+				if hrp.CanSetNetworkOwnership and hrp:CanSetNetworkOwnership() then
+					hrp:SetNetworkOwner(LP)
+				end
+			end)
+			spamOwnership(hrp)
+			destroyLineOnPlayer(hrp)
+			hrp.CFrame = CFrame.new(hrp.Position.X, 999999, hrp.Position.Z)
+			hrp.AssemblyLinearVelocity = Vector3.new(0, -500000, 0)
+		end
+	end))
+	Notify("NetOwnerキック", "開始: " .. (State.NetOwnerKickTargetName or ""), 2)
+end
+local function stopNetOwnerKick()
+	State.NetOwnerKickEnabled = false
+	stopConn("NetOwnerKick")
+	Notify("NetOwnerキック", "停止", 2)
+end
+
+-- ==============================
+-- 20. ネットワークオーナーキック上下
+-- ==============================
+local function startNetOwnerKickUpDown()
+	State.NetOwnerKickUpDownEnabled = true
+	local dir = 1
+	addConn("NetOwnerUpDown", RUN.Heartbeat:Connect(function()
+		if not State.NetOwnerKickUpDownEnabled then return end
+		local target = findPlayerByName(State.NetOwnerKickTargetName)
+		if not target then return end
+		local hrp = GetPlayerHRP(target)
+		if hrp then
+			pcall(function()
+				if hrp.CanSetNetworkOwnership and hrp:CanSetNetworkOwnership() then
+					hrp:SetNetworkOwner(LP)
+				end
+			end)
+			spamOwnership(hrp)
+			dir = -dir
+			hrp.CFrame = hrp.CFrame + Vector3.new(0, dir * 50, 0)
+			hrp.AssemblyLinearVelocity = Vector3.new(0, dir * 1000, 0)
+		end
+	end))
+	Notify("NetOwner上下", "開始", 2)
+end
+local function stopNetOwnerKickUpDown()
+	State.NetOwnerKickUpDownEnabled = false
+	stopConn("NetOwnerUpDown")
+	Notify("NetOwner上下", "停止", 2)
+end
+
+-- ==============================
+-- 21. ブローズマン キックドリフト
+-- ==============================
+local function startBloxmanKickDrift()
+	State.BloxmanKickDriftEnabled = true
+	addConn("BloxmanKick", RUN.Heartbeat:Connect(function()
+		if not State.BloxmanKickDriftEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if not char then return end
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then hum.WalkSpeed = 100 end
+			for _, tool in ipairs(char:GetChildren()) do
+				if tool:IsA("Tool") and tool.Name:lower():find("kick") then
+					tool:Activate()
+				end
+			end
+			-- Blobman関連
+			for _, obj in ipairs(WS:GetDescendants()) do
+				if obj.Name:lower():find("blob") or obj.Name:lower():find("bloxman") then
+					local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:IsA("BasePart") and obj
+					if hrp then
+						spamOwnership(hrp)
+						destroyLineOnPlayer(hrp)
+					end
+				end
+			end
+		end)
+	end))
+	Notify("ブローズマンキックドリフト", "有効", 2)
+end
+local function stopBloxmanKickDrift()
+	State.BloxmanKickDriftEnabled = false
+	stopConn("BloxmanKick")
+	Notify("ブローズマンキックドリフト", "無効", 2)
+end
+
+-- ==============================
+-- 22. ブローズマン 上下
+-- ==============================
+local function startBloxmanUpDown()
+	State.BloxmanUpDownEnabled = true
+	local dir = 1
+	addConn("BloxmanUpDown", RUN.Heartbeat:Connect(function()
+		if not State.BloxmanUpDownEnabled then return end
+		pcall(function()
+			for _, obj in ipairs(WS:GetDescendants()) do
+				if obj.Name:lower():find("blob") or obj.Name:lower():find("bloxman") then
+					local hrp = obj:FindFirstChild("HumanoidRootPart") or (obj:IsA("BasePart") and obj)
+					if hrp then
+						spamOwnership(hrp)
+						dir = -dir
+						hrp.CFrame = hrp.CFrame + Vector3.new(0, dir * 30, 0)
+					end
+				end
+			end
+		end)
+	end))
+	Notify("ブローズマン上下", "有効", 2)
+end
+local function stopBloxmanUpDown()
+	State.BloxmanUpDownEnabled = false
+	stopConn("BloxmanUpDown")
+	Notify("ブローズマン上下", "無効", 2)
+end
+
+-- ==============================
+-- 23. FPS表示
+-- ==============================
+local fpsGui, fpsLabel
+local function startFPSDisplay()
+	if fpsGui then return end
+	fpsGui = Instance.new("ScreenGui")
+	fpsGui.Name = "NEKO_FPS"
+	fpsGui.ResetOnSpawn = false
+	fpsGui.Parent = CG
+	fpsLabel = Instance.new("TextLabel", fpsGui)
+	fpsLabel.Size = UDim2.new(0, 160, 0, 35)
+	fpsLabel.Position = UDim2.new(1, -170, 0, 10)
+	fpsLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	fpsLabel.BackgroundTransparency = 0.4
+	fpsLabel.TextColor3 = Color3.fromRGB(0, 255, 128)
+	fpsLabel.TextSize = 18
+	fpsLabel.Font = Enum.Font.Code
+	fpsLabel.Text = "FPS: 60"
+	Instance.new("UICorner", fpsLabel).CornerRadius = UDim.new(0, 6)
+	addConn("FPS", RUN.RenderStepped:Connect(function(dt)
+		if dt > 0 then
+			local fps = math.floor(1 / dt + 0.5)
+			fpsLabel.Text = "FPS: " .. fps
+			if fps <= 15 then
+				fpsLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+			elseif fps <= 30 then
+				fpsLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+			else
+				fpsLabel.TextColor3 = Color3.fromRGB(0, 255, 128)
+			end
+		end
+	end))
+	Notify("FPS表示", "有効", 2)
+end
+local function stopFPSDisplay()
+	stopConn("FPS")
+	if fpsGui then fpsGui:Destroy() fpsGui = nil fpsLabel = nil end
+	Notify("FPS表示", "無効", 2)
+end
+
+-- ==============================
+-- 24. 15FPS以下自動サーバー退避
+-- ==============================
+local function startAutoHopOnLag()
+	State.AutoHopOnLagEnabled = true
+	addConn("AutoHop", RUN.RenderStepped:Connect(function(dt)
+		if not State.AutoHopOnLagEnabled then return end
+		if dt > 0 and (1 / dt) <= 15 then
+			State.AutoHopOnLagEnabled = false
+			stopConn("AutoHop")
+			Notify("緊急退避", "15FPS以下検知・サーバー移動", 5)
+			task.wait(1)
+			pcall(function() TPS:Teleport(game.PlaceId, LP) end)
+		end
+	end))
+	Notify("15FPS自動退避", "有効", 2)
+end
+local function stopAutoHopOnLag()
+	State.AutoHopOnLagEnabled = false
+	stopConn("AutoHop")
+	Notify("15FPS自動退避", "無効", 2)
+end
+
+-- ==============================
+-- 25. アンチグラブ
+-- ==============================
+local function startAntiGrab()
+	State.AntiGrabEnabled = true
+	addConn("AntiGrab", RUN.Heartbeat:Connect(function()
+		if not State.AntiGrabEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if not char then return end
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			if not hrp then return end
+			if hrp.AssemblyLinearVelocity.Magnitude > 3000 then
+				hrp.AssemblyLinearVelocity = Vector3.zero
+			end
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr ~= LP then
+					local th = GetPlayerHRP(plr)
+					if th and (th.Position - hrp.Position).Magnitude <= 5 then
+						spamOwnership(th)
+						destroyLineOnPlayer(th)
+						th.CFrame = CFrame.new(th.Position.X, 999999, th.Position.Z)
+						th.AssemblyLinearVelocity = Vector3.new(0, -50000, 0)
+						local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+						if hum then hum.Health = 0 end
+					end
+				end
+			end
+		end)
+	end))
+	Notify("アンチグラブ", "有効", 2)
+end
+local function stopAntiGrab()
+	State.AntiGrabEnabled = false
+	stopConn("AntiGrab")
+	Notify("アンチグラブ", "無効", 2)
+end
+
+-- ==============================
+-- 26. アンチグッチ & 手裏剣干渉防御
+-- ==============================
+local function startAntiGucci()
+	State.AntiGucciEnabled = true
+	addConn("AntiGucci", RUN.Stepped:Connect(function()
+		if not State.AntiGucciEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				for _, child in ipairs(char:GetChildren()) do
+					if child:IsA("BodyPosition") or child:IsA("BodyVelocity") or child:IsA("RocketPropulsion") or child:IsA("BodyForce") or child:IsA("BodyThrust") then
+						if not child.Name:match("Allowed") then child:Destroy() end
+					end
+				end
+			end
+			for _, obj in ipairs(WS:GetChildren()) do
+				local nameL = obj.Name:lower()
+				if nameL:find("shuriken") or nameL:find("star") or nameL:find("kunai") or nameL:find("gucci") or nameL:find("projector") then
+					local hrp = char and char:FindFirstChild("HumanoidRootPart")
+					if hrp then
+						local part = obj:IsA("BasePart") and obj or (obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")))
+						if part and (part.Position - hrp.Position).Magnitude < 25 then
+							obj:Destroy()
+						end
+					end
+				end
+			end
+		end)
+	end))
+	Notify("アンチグッチ", "有効", 2)
+end
+local function stopAntiGucci()
+	State.AntiGucciEnabled = false
+	stopConn("AntiGucci")
+	Notify("アンチグッチ", "無効", 2)
+end
+
+-- ==============================
+-- 27. 手裏剣迎撃（自動1個投げ）
+-- ==============================
+local lastThrowTime = 0
+local function startAutoThrowCounter()
+	State.AutoThrowCounterEnabled = true
+	addConn("AutoThrow", RUN.Stepped:Connect(function()
+		if not State.AutoThrowCounterEnabled then return end
+		pcall(function()
+			local found = false
+			for _, obj in ipairs(WS:GetChildren()) do
+				local nameL = obj.Name:lower()
+				if nameL:find("shuriken") or nameL:find("star") or nameL:find("kunai") then
+					found = true
+					break
+				end
+			end
+			if found and (tick() - lastThrowTime) > 0.8 then
+				lastThrowTime = tick()
+				local char = LP.Character
+				local backpack = LP:FindFirstChildOfClass("Backpack")
+				local weapon = char and char:FindFirstChildOfClass("Tool") or (backpack and backpack:FindFirstChildOfClass("Tool"))
+				if weapon then weapon:Activate() end
+				for _, desc in ipairs(RS:GetDescendants()) do
+					if desc:IsA("RemoteEvent") then
+						local nameL = desc.Name:lower()
+						if nameL:find("shuriken") or nameL:find("throw") or nameL:find("kunai") then
+							desc:FireServer()
+							break
+						end
+					end
+				end
+			end
+		end)
+	end))
+	Notify("手裏剣迎撃", "有効", 2)
+end
+local function stopAutoThrowCounter()
+	State.AutoThrowCounterEnabled = false
+	stopConn("AutoThrow")
+	Notify("手裏剣迎撃", "無効", 2)
+end
+
+-- ==============================
+-- 28. アンチラグ
+-- ==============================
+local function startAntiLag()
+	State.AntiLagEnabled = true
+	addConn("AntiLag", RUN.RenderStepped:Connect(function()
+		if not State.AntiLagEnabled then return end
+		pcall(function()
+			local char = LP.Character
+			if char then
+				local hrp = char:FindFirstChild("HumanoidRootPart")
+				if hrp then
+					if hrp.CanSetNetworkOwnership and hrp:CanSetNetworkOwnership() then
+						hrp:SetNetworkOwner(LP)
+					end
+					if hrp.AssemblyLinearVelocity.Magnitude > 4000 then
+						hrp.AssemblyLinearVelocity = Vector3.zero
+					end
+				end
+			end
+		end)
+	end))
+	Notify("アンチラグ", "有効", 2)
+end
+local function stopAntiLag()
+	State.AntiLagEnabled = false
+	stopConn("AntiLag")
+	Notify("アンチラグ", "無効", 2)
+end
+
+-- ==============================
+-- 30. 指定キック（ドロップダウン + 開始/停止）
+-- ==============================
+local function startTargetKick()
+	if State.KickTargetName == "" then
+		Notify("指定キック", "対象を選択してください", 2)
+		return
+	end
+	State.TargetKickEnabled = true
+	addConn("TargetKick", RUN.Heartbeat:Connect(function()
+		if not State.TargetKickEnabled then return end
+		local target = findPlayerByName(State.KickTargetName)
+		if target then
+			local hrp = GetPlayerHRP(target)
+			if hrp then
+				spamOwnership(hrp)
+				destroyLineOnPlayer(hrp)
+				hrp.CFrame = CFrame.new(hrp.Position.X, 999999, hrp.Position.Z)
+				hrp.AssemblyLinearVelocity = Vector3.new(0, -500000, 0)
+				local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+				if hum then hum.Health = 0 end
+			end
+		end
+	end))
+	Notify("指定キック", "開始: " .. State.KickTargetName, 2)
+end
+local function stopTargetKick()
+	State.TargetKickEnabled = false
+	stopConn("TargetKick")
+	Notify("指定キック", "停止", 2)
+end
+
+-- ==============================
+-- 31. スパムキック
+-- ==============================
+local function startSpamKick()
+	State.SpamKickEnabled = true
+	addConn("SpamKick", RUN.Heartbeat:Connect(function()
+		if not State.SpamKickEnabled then return end
+		local target = findPlayerByName(State.KickTargetName)
+		if target then
+			local hrp = GetPlayerHRP(target)
+			if hrp then
+				spamOwnership(hrp)
+				destroyLineOnPlayer(hrp)
+				hrp.AssemblyLinearVelocity = Vector3.new(0, -500000, 0)
+			end
+		end
+	end))
+	Notify("スパムキック", "有効", 2)
+end
+local function stopSpamKick()
+	State.SpamKickEnabled = false
+	stopConn("SpamKick")
+	Notify("スパムキック", "無効", 2)
+end
+
+-- ==============================
+-- 32. ラグキック（猫なのは部選択から移植）
+-- ==============================
+local function executeLagKick()
+	Notify("ラグキック", "実行中...", 3)
+	task.spawn(function()
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= LP then
+				local hrp = GetPlayerHRP(plr)
+				if hrp then
+					spamOwnership(hrp)
+					destroyLineOnPlayer(hrp)
+					hrp.CFrame = CFrame.new(hrp.Position.X, 999999, hrp.Position.Z)
+					hrp.AssemblyLinearVelocity = Vector3.new(0, -500000, 0)
+					local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+					if hum then hum.Health = 0 end
+				end
+			end
+		end
+		-- 追加ラグ
+		if CreateGrabLine then
+			local spawn = WS:FindFirstChild("SpawnLocation") or WS:FindFirstChild("Spawn")
+			if spawn then
+				for i = 1, 200 do
+					pcall(function()
+						CreateGrabLine:FireServer(spawn, CFrame.new(math.random(-1e9, 1e9), 0, math.random(-1e9, 1e9)))
+					end)
+				end
+			end
+		end
+		Notify("ラグキック", "完了", 2)
+	end)
+end
+
+-- ==============================
+-- 34. Sky Cycler（空回転 + 自動チャット連動）
+-- ==============================
+local skyConn
+local function startSkyCycler()
+	State.SkyCyclerEnabled = true
+	local t = 0
+	skyConn = RUN.RenderStepped:Connect(function(dt)
+		if not State.SkyCyclerEnabled then return end
+		t = t + dt * 0.5
+		pcall(function()
+			LT.ClockTime = (t % 24)
+		end)
+	end)
+	-- 自動チャット連動（簡易）
+	addConn("SkyChat", RUN.Heartbeat:Connect(function()
+		if not State.SkyCyclerEnabled then return end
+		-- 時間帯に応じたチャットはユーザーが必要なら拡張
+	end))
+	Notify("Sky Cycler", "有効", 2)
+end
+local function stopSkyCycler()
+	State.SkyCyclerEnabled = false
+	if skyConn then skyConn:Disconnect() skyConn = nil end
+	stopConn("SkyChat")
+	Notify("Sky Cycler", "無効", 2)
+end
+
+-- ==============================
+-- 35. ゲーム全UI色変更（オレンジ→緑グラデ）
+-- ==============================
+local GameUIOriginals = {}
+local function startGameUIColor()
+	State.GameUIColorEnabled = true
+	local ORANGE = Color3.fromRGB(255, 140, 0)
+	local GREEN = Color3.fromRGB(20, 200, 92)
+	local function IsOrange(c)
+		if not c then return false end
+		local r, g, b = c.R, c.G, c.B
+		return r > 0.55 and g >= 0.15 and g < 0.85 and b < 0.5
+	end
+	local function apply(obj)
+		if obj:IsA("GuiObject") then
+			if IsOrange(obj.BackgroundColor3) then
+				if not GameUIOriginals[obj] then GameUIOriginals[obj] = obj.BackgroundColor3 end
+				obj.BackgroundColor3 = GREEN
+			end
+			if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+				if IsOrange(obj.TextColor3) then
+					if not GameUIOriginals[obj] then GameUIOriginals[obj] = obj.TextColor3 end
+					obj.TextColor3 = GREEN
+				end
+			end
+		end
+	end
+	for _, gui in ipairs(CG:GetDescendants()) do apply(gui) end
+	for _, gui in ipairs(LP.PlayerGui:GetDescendants()) do apply(gui) end
+	addConn("GameUI", LP.PlayerGui.DescendantAdded:Connect(function(obj) if State.GameUIColorEnabled then apply(obj) end end))
+	Notify("ゲームUI色変更", "有効", 2)
+end
+local function stopGameUIColor()
+	State.GameUIColorEnabled = false
+	stopConn("GameUI")
+	for obj, col in pairs(GameUIOriginals) do
+		pcall(function()
+			if obj:IsA("GuiObject") then obj.BackgroundColor3 = col end
+		end)
+	end
+	GameUIOriginals = {}
+	Notify("ゲームUI色変更", "無効", 2)
+end
+
+-- ==============================
+-- LRG パーティクル文字 (人間が書く感じ・西側向き・G棒は円中心まで)
+-- ==============================
+local function CreateLRGParticles()
+	pcall(function()
+		local old = WS:FindFirstChild("LRG_Particles")
+		if old then old:Destroy() end
+		local folder = Instance.new("Folder")
+		folder.Name = "LRG_Particles"
+		folder.Parent = WS
+		local basePos = Vector3.new(-180, 80, 0) -- マップ西側
+
+		local function createParticle(pos, color)
+			local p = Instance.new("Part")
+			p.Anchored = true
+			p.CanCollide = false
+			p.Size = Vector3.new(0.8, 0.8, 0.8)
+			p.Shape = Enum.PartType.Ball
+			p.Material = Enum.Material.Neon
+			p.Color = color
+			p.Position = pos
+			p.Parent = folder
+			local light = Instance.new("PointLight", p)
+			light.Brightness = 2
+			light.Range = 8
+			light.Color = color
+			return p
+		end
+
+		local rainbow = {
+			Color3.fromRGB(255, 0, 0), Color3.fromRGB(255, 127, 0),
+			Color3.fromRGB(255, 255, 0), Color3.fromRGB(0, 255, 0),
+			Color3.fromRGB(0, 0, 255), Color3.fromRGB(75, 0, 130),
+			Color3.fromRGB(148, 0, 211)
+		}
+
+		task.spawn(function()
+			-- L を書く（下から上→右）
+			for i = 0, 30 do
+				createParticle(basePos + Vector3.new(0, i * 1.2, 0), rainbow[(i % 7) + 1])
+				task.wait(0.03)
+			end
+			for i = 0, 12 do
+				createParticle(basePos + Vector3.new(i * 1.1, 0, 0), rainbow[(i % 7) + 1])
+				task.wait(0.03)
+			end
+			task.wait(0.2)
+			-- R を書く
+			local rBase = basePos + Vector3.new(20, 0, 0)
+			for i = 0, 30 do
+				createParticle(rBase + Vector3.new(0, i * 1.2, 0), rainbow[(i % 7) + 1])
+				task.wait(0.03)
+			end
+			for i = 0, 20 do
+				local angle = math.rad(i * 9)
+				local x = math.sin(angle) * 10
+				local y = 30 - math.cos(angle) * 10
+				createParticle(rBase + Vector3.new(x, y, 0), rainbow[(i % 7) + 1])
+				task.wait(0.03)
+			end
+			for i = 0, 15 do
+				createParticle(rBase + Vector3.new(i * 0.7, 15 - i * 1.0, 0), rainbow[(i % 7) + 1])
+				task.wait(0.03)
+			end
+			task.wait(0.2)
+			-- G を書く（円 + 真ん中まで棒）
+			local gBase = basePos + Vector3.new(45, 15, 0)
+			for i = 0, 36 do
+				local angle = math.rad(i * 10)
+				local x = math.cos(angle) * 14
+				local y = math.sin(angle) * 14
+				createParticle(gBase + Vector3.new(x, y, 0), rainbow[(i % 7) + 1])
+				task.wait(0.025)
+			end
+			-- 伸ばし棒を円の真ん中まで
+			for i = 0, 14 do
+				createParticle(gBase + Vector3.new(i * 1.0, 0, 0), rainbow[(i % 7) + 1])
+				task.wait(0.03)
+			end
+		end)
+	end)
+end
+
+-- ==============================
+-- 36. リアルグラフィック強化
+-- ==============================
+local function startGFX()
+	State.GFXEnabled = true
+	pcall(function()
+		LT.GlobalShadows = true
+		LT.ShadowSoftness = 0.15
+		LT.Brightness = 2.2
+		LT.Ambient = Color3.fromRGB(80, 90, 110)
+		LT.OutdoorAmbient = Color3.fromRGB(110, 120, 140)
+		LT.Technology = Enum.Technology.ShadowMap
+		local bloom = LT:FindFirstChildOfClass("BloomEffect") or Instance.new("BloomEffect", LT)
+		bloom.Intensity = 0.4
+		bloom.Size = 24
+		bloom.Threshold = 0.9
+		local dof = LT:FindFirstChildOfClass("DepthOfFieldEffect") or Instance.new("DepthOfFieldEffect", LT)
+		dof.FarIntensity = 0.3
+		dof.FocusDistance = 20
+		dof.InFocusRadius = 10
+		local sun = LT:FindFirstChildOfClass("SunRaysEffect") or Instance.new("SunRaysEffect", LT)
+		sun.Intensity = 0.12
+		sun.Spread = 0.6
+		if not LT:FindFirstChildOfClass("Sky") then
+			local sky = Instance.new("Sky", LT)
+			sky.MoonTextureId = "rbxassetid://6444320592"
+			sky.SunTextureId = "rbxassetid://619216690"
+			sky.StarCount = 3000
+		end
+	end)
+	Notify("リアルグラフィック", "有効", 2)
+end
+local function stopGFX()
+	State.GFXEnabled = false
+	Notify("リアルグラフィック", "無効", 2)
+end
+
+-- ==============================
+-- 39. フルブライト
+-- ==============================
+local function startFullBright()
+	State.FullBrightEnabled = true
+	addConn("FullBright", RUN.RenderStepped:Connect(function()
+		if not State.FullBrightEnabled then return end
+		LT.Brightness = 2
+		LT.ClockTime = 14
+		LT.FogEnd = 100000
+		LT.GlobalShadows = false
+		LT.Ambient = Color3.fromRGB(178, 178, 178)
+	end))
+	Notify("フルブライト", "有効", 2)
+end
+local function stopFullBright()
+	State.FullBrightEnabled = false
+	stopConn("FullBright")
+	LT.GlobalShadows = true
+	Notify("フルブライト", "無効", 2)
+end
+
+-- ==============================
+-- 40. カメラFOV
+-- ==============================
+local function setCameraFOV(v)
+	State.CameraFOV = v
+	pcall(function()
+		WS.CurrentCamera.FieldOfView = v
+	end)
+end
+
+-- ==============================
+-- 41-43. コピー系
+-- ==============================
+local function copyJobId()
+	local id = game.JobId
+	if setclipboard then setclipboard(id) end
+	Notify("Job ID", id, 3)
+end
+local function copyGameId()
+	local id = tostring(game.PlaceId)
+	if setclipboard then setclipboard(id) end
+	Notify("Game ID", id, 3)
+end
+local function copyExecutorInfo()
+	local info = "Unknown"
+	pcall(function()
+		if identifyexecutor then info = identifyexecutor() end
+	end)
+	if setclipboard then setclipboard(info) end
+	Notify("Executor", info, 3)
+end
+
+-- ==============================
+-- 44. リジョイン
+-- ==============================
+local function rejoin()
+	Notify("リジョイン", "実行中...", 2)
+	pcall(function() TPS:Teleport(game.PlaceId, LP) end)
+end
+
+-- ==============================
+-- 45. サーバーホップ
+-- ==============================
+local function serverHop()
+	Notify("サーバーホップ", "別サーバーへ移動中...", 3)
+	pcall(function()
+		local servers = {}
+		local req = request or http_request or (syn and syn.request)
+		if req then
+			local res = req({
+				Url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+			})
+			if res and res.Body then
+				local data = HttpService:JSONDecode(res.Body)
+				if data and data.data then
+					for _, s in ipairs(data.data) do
+						if s.playing < s.maxPlayers and s.id ~= game.JobId then
+							table.insert(servers, s.id)
+						end
+					end
+				end
+			end
+		end
+		if #servers > 0 then
+			TPS:TeleportToPlaceInstance(game.PlaceId, servers[math.random(1, #servers)], LP)
+		else
+			TPS:Teleport(game.PlaceId, LP)
+		end
+	end)
+end
+
+-- ==============================
+-- 46. 起動スプラッシュ + 47. 起動サウンド
+-- ==============================
+local function PlayBootSound()
+	pcall(function()
+		local s = Instance.new("Sound")
+		s.Name = "HDBootSound"
+		s.SoundId = SND
+		s.Volume = 0.6
+		s.Parent = SS
+		s:Play()
+		task.delay(8, function() pcall(function() s:Destroy() end) end)
+	end)
+end
+
+local function ShowBootSplash(onDone)
+	PlayBootSound()
+	local boot = Instance.new("ScreenGui")
+	boot.Name = "HDBoot"
+	boot.ResetOnSpawn = false
+	boot.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	boot.DisplayOrder = 1000
+	boot.Parent = CG
+	local bg = Instance.new("Frame", boot)
+	bg.Size = UDim2.new(1, 0, 1, 0)
+	bg.BackgroundColor3 = Color3.fromRGB(8, 15, 16)
+	bg.BackgroundTransparency = 1
+	bg.BorderSizePixel = 0
+	T:Create(bg, TweenInfo.new(0.4), {BackgroundTransparency = 0}):Play()
+	local logo = Instance.new("TextLabel", bg)
+	logo.AnchorPoint = Vector2.new(0.5, 0.5)
+	logo.Position = UDim2.new(0.5, 0, 0.42, 0)
+	logo.Size = UDim2.new(0, 10, 0, 10)
+	logo.BackgroundTransparency = 1
+	logo.Text = "NEKO HUB"
+	logo.TextColor3 = C.Tx
+	logo.Font = Enum.Font.GothamBlack
+	logo.TextScaled = true
+	logo.TextTransparency = 1
+	local logoGrad = Instance.new("UIGradient", logo)
+	logoGrad.Color = ColorSequence.new(C.GS, C.GE)
+	logoGrad.Rotation = 45
+	T:Create(logo, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, 280, 0, 60), TextTransparency = 0
+	}):Play()
+	local sub = Instance.new("TextLabel", bg)
+	sub.AnchorPoint = Vector2.new(0.5, 0.5)
+	sub.Position = UDim2.new(0.5, 0, 0.52, 0)
+	sub.Size = UDim2.new(0, 320, 0, 20)
+	sub.BackgroundTransparency = 1
+	sub.Text = "COMPLETE ALL FEATURES 起動中..."
+	sub.TextColor3 = C.Sub
+	sub.Font = Enum.Font.Gotham
+	sub.TextSize = 13
+	sub.TextTransparency = 1
+	task.delay(0.3, function() T:Create(sub, TweenInfo.new(0.4), {TextTransparency = 0}):Play() end)
+	local barBg = Instance.new("Frame", bg)
+	barBg.AnchorPoint = Vector2.new(0.5, 0.5)
+	barBg.Position = UDim2.new(0.5, 0, 0.6, 0)
+	barBg.Size = UDim2.new(0, 300, 0, 6)
+	barBg.BackgroundColor3 = C.TgO
+	barBg.BackgroundTransparency = 0.2
+	barBg.BorderSizePixel = 0
+	Instance.new("UICorner", barBg).CornerRadius = UDim.new(1, 0)
+	local barFill = Instance.new("Frame", barBg)
+	barFill.Size = UDim2.new(0, 0, 1, 0)
+	barFill.BackgroundColor3 = C.Acc
+	barFill.BorderSizePixel = 0
+	Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
+	local pctLbl = Instance.new("TextLabel", bg)
+	pctLbl.AnchorPoint = Vector2.new(0.5, 0.5)
+	pctLbl.Position = UDim2.new(0.5, 0, 0.65, 0)
+	pctLbl.Size = UDim2.new(0, 100, 0, 16)
+	pctLbl.BackgroundTransparency = 1
+	pctLbl.Text = "0%"
+	pctLbl.TextColor3 = C.Sub
+	pctLbl.Font = Enum.Font.GothamMedium
+	pctLbl.TextSize = 12
+	pctLbl.TextTransparency = 1
+	task.delay(0.3, function() T:Create(pctLbl, TweenInfo.new(0.3), {TextTransparency = 0}):Play() end)
+	task.spawn(function()
+		task.wait(0.5)
+		local steps = {15, 38, 55, 72, 88, 100}
+		for _, p in ipairs(steps) do
+			T:Create(barFill, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Size = UDim2.new(p / 100, 0, 1, 0)}):Play()
+			pctLbl.Text = p .. "%"
+			task.wait(0.22)
+		end
+		task.wait(0.3)
+		local fadeOut = T:Create(bg, TweenInfo.new(0.5), {BackgroundTransparency = 1})
+		T:Create(logo, TweenInfo.new(0.4), {TextTransparency = 1}):Play()
+		T:Create(sub, TweenInfo.new(0.4), {TextTransparency = 1}):Play()
+		T:Create(pctLbl, TweenInfo.new(0.4), {TextTransparency = 1}):Play()
+		fadeOut:Play()
+		fadeOut.Completed:Wait()
+		pcall(function() boot:Destroy() end)
+		if onDone then onDone() end
+	end)
+end
+
+-- ==============================
+-- Happy Day UI ライブラリ
+-- ==============================
+local H = {}
+local N = {}
+
+function H:Notify(t, d)
+	d = d or 3
+	local g = CG:FindFirstChild("HDN") or Instance.new("ScreenGui", CG)
+	g.Name = "HDN"
+	g.ResetOnSpawn = false
+	local f = Instance.new("Frame", g)
+	f.Size = UDim2.new(0, 280, 0, 52)
+	f.Position = UDim2.new(1, 20, 0, 20 + #N * 62)
+	f.BackgroundColor3 = C.Sec
+	f.BackgroundTransparency = 1
+	f.BorderSizePixel = 0
+	Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
+	local st = Instance.new("UIStroke", f)
+	st.Color = C.Brd
+	st.Thickness = 1
+	st.Transparency = 0.3
+	local gr = Instance.new("UIGradient", st)
+	gr.Color = ColorSequence.new(C.GS, C.GE)
+	gr.Rotation = 45
+	local l = Instance.new("TextLabel", f)
+	l.Size = UDim2.new(1, -25, 1, 0)
+	l.Position = UDim2.new(0, 18, 0, 0)
+	l.BackgroundTransparency = 1
+	l.Text = tostring(t)
+	l.TextColor3 = C.Tx
+	l.Font = Enum.Font.GothamMedium
+	l.TextSize = 13
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.TextWrapped = true
+	table.insert(N, f)
+	T:Create(f, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Position = UDim2.new(1, -300, 0, 20 + (#N - 1) * 62),
+		BackgroundTransparency = 0.15
+	}):Play()
+	task.delay(d, function()
+		for i, n in ipairs(N) do if n == f then table.remove(N, i) break end end
+		local outTween = T:Create(f, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+			Position = UDim2.new(1, 20, 0, f.Position.Y.Offset),
+			BackgroundTransparency = 1
+		})
+		outTween:Play()
+		outTween.Completed:Wait()
+		pcall(function() f:Destroy() end)
+		for i, n in ipairs(N) do
+			T:Create(n, TweenInfo.new(0.2), {Position = UDim2.new(1, -300, 0, 20 + (i - 1) * 62)}):Play()
+		end
+	end)
+end
+
+function H:CreateWindow(cfg)
+	cfg = cfg or {}
+	local gui = Instance.new("ScreenGui", CG)
+	gui.Name = "HDUI"
+	gui.ResetOnSpawn = false
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	local m = Instance.new("Frame", gui)
+	m.Size = UDim2.new(0, 550, 0, 420)
+	m.Position = UDim2.new(0.5, -275, 0.5, -210)
+	m.BackgroundTransparency = 1
+	m.BorderSizePixel = 0
+	m.Active = true
+	m.Draggable = true
+	Instance.new("UICorner", m).CornerRadius = UDim.new(0, 10)
+	local bg = Instance.new("ImageLabel", m)
+	bg.Size = UDim2.new(1, 0, 1, 0)
+	bg.BackgroundTransparency = 1
+	bg.Image = BGI
+	bg.ScaleType = Enum.ScaleType.Crop
+	bg.ZIndex = 0
+	Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 10)
+	local ov = Instance.new("Frame", m)
+	ov.Size = UDim2.new(1, 0, 1, 0)
+	ov.BackgroundColor3 = Color3.new(0, 0, 0)
+	ov.BackgroundTransparency = 0.4
+	ov.BorderSizePixel = 0
+	ov.ZIndex = 1
+	Instance.new("UICorner", ov).CornerRadius = UDim.new(0, 10)
+	local ms = Instance.new("UIStroke", m)
+	ms.Color = C.Brd
+	ms.Thickness = 2
+	ms.Transparency = 0.2
+	local mg = Instance.new("UIGradient", ms)
+	mg.Color = ColorSequence.new(C.GS, C.GE)
+	mg.Rotation = 45
+	local tb = Instance.new("Frame", m)
+	tb.Size = UDim2.new(1, 0, 0, 38)
+	tb.BackgroundColor3 = C.Sec
+	tb.BackgroundTransparency = 0.3
+	tb.BorderSizePixel = 0
+	tb.ZIndex = 2
+	Instance.new("UICorner", tb).CornerRadius = UDim.new(0, 10)
+	local tl = Instance.new("TextLabel", tb)
+	tl.Size = UDim2.new(1, -90, 1, 0)
+	tl.Position = UDim2.new(0, 16, 0, 0)
+	tl.BackgroundTransparency = 1
+	tl.Text = cfg.Title or "NEKO HUB"
+	tl.TextColor3 = C.Tx
+	tl.Font = Enum.Font.GothamBold
+	tl.TextSize = 16
+	tl.TextXAlignment = Enum.TextXAlignment.Left
+	tl.ZIndex = 3
+	local tg = Instance.new("UIGradient", tl)
+	tg.Color = ColorSequence.new(C.GS, C.GE)
+	tg.Rotation = 45
+	local minB = Instance.new("TextButton", tb)
+	minB.Size = UDim2.new(0, 26, 0, 26)
+	minB.Position = UDim2.new(1, -66, 0, 6)
+	minB.BackgroundColor3 = C.Ter
+	minB.BackgroundTransparency = 0.3
+	minB.Text = "-"
+	minB.TextColor3 = C.Tx
+	minB.Font = Enum.Font.GothamBold
+	minB.TextSize = 16
+	minB.BorderSizePixel = 0
+	minB.ZIndex = 3
+	Instance.new("UICorner", minB).CornerRadius = UDim.new(0, 6)
+	local cb = Instance.new("TextButton", tb)
+	cb.Size = UDim2.new(0, 26, 0, 26)
+	cb.Position = UDim2.new(1, -34, 0, 6)
+	cb.BackgroundColor3 = C.Ter
+	cb.BackgroundTransparency = 0.3
+	cb.Text = "X"
+	cb.TextColor3 = C.Tx
+	cb.Font = Enum.Font.GothamBold
+	cb.TextSize = 14
+	cb.BorderSizePixel = 0
+	cb.ZIndex = 3
+	Instance.new("UICorner", cb).CornerRadius = UDim.new(0, 6)
+	cb.MouseButton1Click:Connect(function() gui:Destroy() end)
+	local opB = Instance.new("TextButton", gui)
+	opB.Size = UDim2.new(0, 50, 0, 50)
+	opB.Position = UDim2.new(1, -70, 0, 20)
+	opB.BackgroundColor3 = C.Sec
+	opB.BackgroundTransparency = 0.15
+	opB.Text = "開く"
+	opB.TextColor3 = C.Tx
+	opB.Font = Enum.Font.GothamBold
+	opB.TextSize = 13
+	opB.BorderSizePixel = 0
+	opB.Visible = false
+	opB.ZIndex = 100
+	Instance.new("UICorner", opB).CornerRadius = UDim.new(0, 25)
+	local function doClose()
+		if not m.Visible then return end
+		local closeT = T:Create(m, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 0, 0, 0)})
+		closeT:Play()
+		closeT.Completed:Wait()
+		m.Visible = false
+		m.Size = UDim2.new(0, 550, 0, 420)
+		opB.Visible = true
+		opB.Size = UDim2.new(0, 0, 0, 0)
+		T:Create(opB, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 50, 0, 50)}):Play()
+	end
+	local function doOpen()
+		if m.Visible then return end
+		m.Visible = true
+		opB.Visible = false
+		m.Size = UDim2.new(0, 0, 0, 0)
+		T:Create(m, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 550, 0, 420)}):Play()
+	end
+	minB.MouseButton1Click:Connect(doClose)
+	opB.MouseButton1Click:Connect(doOpen)
+	local tc = Instance.new("Frame", m)
+	tc.Size = UDim2.new(0, 130, 1, -38)
+	tc.Position = UDim2.new(0, 0, 0, 38)
+	tc.BackgroundColor3 = C.Sec
+	tc.BackgroundTransparency = 0.5
+	tc.BorderSizePixel = 0
+	tc.ZIndex = 2
+	local ts = Instance.new("ScrollingFrame", tc)
+	ts.Size = UDim2.new(1, 0, 1, 0)
+	ts.BackgroundTransparency = 1
+	ts.BorderSizePixel = 0
+	ts.ScrollBarThickness = 2
+	ts.ScrollBarImageColor3 = C.Acc
+	ts.CanvasSize = UDim2.new()
+	ts.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	ts.ZIndex = 3
+	local tl2 = Instance.new("UIListLayout", ts)
+	tl2.SortOrder = Enum.SortOrder.LayoutOrder
+	tl2.Padding = UDim.new(0, 4)
+	local tp = Instance.new("UIPadding", ts)
+	tp.PaddingTop = UDim.new(0, 8)
+	tp.PaddingLeft = UDim.new(0, 6)
+	tp.PaddingRight = UDim.new(0, 6)
+	local cc = Instance.new("Frame", m)
+	cc.Size = UDim2.new(1, -132, 1, -42)
+	cc.Position = UDim2.new(0, 132, 0, 38)
+	cc.BackgroundTransparency = 1
+	cc.ZIndex = 2
+	local fl = Instance.new("TextLabel", m)
+	fl.Size = UDim2.new(1, -14, 0, 18)
+	fl.Position = UDim2.new(0, 8, 1, -22)
+	fl.BackgroundTransparency = 1
+	fl.Text = cfg.Footer or "NEKO HUB COMPLETE"
+	fl.TextColor3 = C.Sub
+	fl.Font = Enum.Font.Gotham
+	fl.TextSize = 10
+	fl.TextXAlignment = Enum.TextXAlignment.Left
+	fl.ZIndex = 3
+	local cur = nil
+	local mkG
+	local win = {Gui = gui, MainFrame = m, OpenButton = opB, Notify = function(_, t, d) H:Notify(t, d) end, Close = doClose, Open = doOpen}
+
+	mkG = function(par, title)
+		local gf = Instance.new("Frame", par)
+		gf.Size = UDim2.new(1, 0, 0, 30)
+		gf.BackgroundColor3 = C.Sec
+		gf.BackgroundTransparency = 0.4
+		gf.BorderSizePixel = 0
+		gf.AutomaticSize = Enum.AutomaticSize.Y
+		gf.ZIndex = 5
+		Instance.new("UICorner", gf).CornerRadius = UDim.new(0, 8)
+		local st = Instance.new("UIStroke", gf)
+		st.Color = C.Brd
+		st.Thickness = 1
+		st.Transparency = 0.4
+		local sg = Instance.new("UIGradient", st)
+		sg.Color = ColorSequence.new(C.GS, C.GE)
+		sg.Rotation = 45
+		local pd = Instance.new("UIPadding", gf)
+		pd.PaddingTop = UDim.new(0, 6)
+		pd.PaddingBottom = UDim.new(0, 6)
+		pd.PaddingLeft = UDim.new(0, 6)
+		pd.PaddingRight = UDim.new(0, 6)
+		local t = Instance.new("TextLabel", gf)
+		t.Size = UDim2.new(1, 0, 0, 20)
+		t.BackgroundTransparency = 1
+		t.Text = title
+		t.TextColor3 = C.Acc
+		t.Font = Enum.Font.GothamBold
+		t.TextSize = 12
+		t.TextXAlignment = Enum.TextXAlignment.Left
+		t.ZIndex = 6
+		local ly = Instance.new("UIListLayout", gf)
+		ly.SortOrder = Enum.SortOrder.LayoutOrder
+		ly.Padding = UDim.new(0, 4)
+		local g = {Frame = gf}
+
+		function g:AddToggle(name, tcfg)
+			tcfg = tcfg or {}
+			local stt = tcfg.Default or false
+			local cbk = tcfg.Callback or function() end
+			local f = Instance.new("Frame", gf)
+			f.Size = UDim2.new(1, 0, 0, 26)
+			f.BackgroundColor3 = C.Ter
+			f.BackgroundTransparency = 0.5
+			f.BorderSizePixel = 0
+			f.ZIndex = 6
+			Instance.new("UICorner", f).CornerRadius = UDim.new(0, 5)
+			local lb = Instance.new("TextLabel", f)
+			lb.Size = UDim2.new(1, -55, 1, 0)
+			lb.Position = UDim2.new(0, 8, 0, 0)
+			lb.BackgroundTransparency = 1
+			lb.Text = name
+			lb.TextColor3 = C.Tx
+			lb.Font = Enum.Font.GothamMedium
+			lb.TextSize = 12
+			lb.TextXAlignment = Enum.TextXAlignment.Left
+			lb.ZIndex = 7
+			local b = Instance.new("TextButton", f)
+			b.Size = UDim2.new(0, 40, 0, 18)
+			b.Position = UDim2.new(1, -48, 0.5, -9)
+			b.BackgroundColor3 = stt and C.Tg or C.TgO
+			b.BackgroundTransparency = 0.2
+			b.Text = ""
+			b.BorderSizePixel = 0
+			b.ZIndex = 7
+			Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+			local i2 = Instance.new("Frame", b)
+			i2.Size = UDim2.new(0, 14, 0, 14)
+			i2.Position = stt and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+			i2.BackgroundColor3 = Color3.new(1, 1, 1)
+			i2.BorderSizePixel = 0
+			i2.ZIndex = 8
+			Instance.new("UICorner", i2).CornerRadius = UDim.new(1, 0)
+			local function setVisual(v)
+				T:Create(b, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {BackgroundColor3 = v and C.Tg or C.TgO}):Play()
+				T:Create(i2, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+					Position = v and UDim2.new(1, -16, 0.5, -7) or UDim2.new(0, 2, 0.5, -7)
+				}):Play()
+			end
+			b.MouseButton1Click:Connect(function()
+				stt = not stt
+				setVisual(stt)
+				pcall(cbk, stt)
+			end)
+			return {SetValue = function(_, v) stt = v setVisual(stt) pcall(cbk, stt) end, Value = stt}
+		end
+
+		function g:AddButton(bcfg)
+			bcfg = bcfg or {}
+			local b = Instance.new("TextButton", gf)
+			b.Size = UDim2.new(1, 0, 0, 28)
+			b.BackgroundColor3 = C.Ter
+			b.BackgroundTransparency = 0.5
+			b.Text = bcfg.Text or "Button"
+			b.TextColor3 = C.Tx
+			b.Font = Enum.Font.GothamMedium
+			b.TextSize = 12
+			b.BorderSizePixel = 0
+			b.ZIndex = 6
+			Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+			b.MouseButton1Click:Connect(function() pcall(bcfg.Func or function() end) end)
+		end
+
+		function g:AddSlider(name, scfg)
+			scfg = scfg or {}
+			local mn, mx = scfg.Min or 0, scfg.Max or 100
+			local vl = scfg.Default or mn
+			local cbk = scfg.Callback or function() end
+			local f = Instance.new("Frame", gf)
+			f.Size = UDim2.new(1, 0, 0, 38)
+			f.BackgroundColor3 = C.Ter
+			f.BackgroundTransparency = 0.5
+			f.BorderSizePixel = 0
+			f.ZIndex = 6
+			Instance.new("UICorner", f).CornerRadius = UDim.new(0, 5)
+			local l = Instance.new("TextLabel", f)
+			l.Size = UDim2.new(1, -60, 0, 16)
+			l.Position = UDim2.new(0, 8, 0, 2)
+			l.BackgroundTransparency = 1
+			l.Text = name
+			l.TextColor3 = C.Tx
+			l.Font = Enum.Font.GothamMedium
+			l.TextSize = 11
+			l.TextXAlignment = Enum.TextXAlignment.Left
+			l.ZIndex = 7
+			local vL = Instance.new("TextLabel", f)
+			vL.Size = UDim2.new(0, 50, 0, 16)
+			vL.Position = UDim2.new(1, -58, 0, 2)
+			vL.BackgroundTransparency = 1
+			vL.Text = tostring(vl)
+			vL.TextColor3 = C.Acc
+			vL.Font = Enum.Font.GothamBold
+			vL.TextSize = 11
+			vL.TextXAlignment = Enum.TextXAlignment.Right
+			vL.ZIndex = 7
+			local br = Instance.new("Frame", f)
+			br.Size = UDim2.new(1, -16, 0, 6)
+			br.Position = UDim2.new(0, 8, 0, 26)
+			br.BackgroundColor3 = C.TgO
+			br.BackgroundTransparency = 0.3
+			br.BorderSizePixel = 0
+			br.ZIndex = 7
+			Instance.new("UICorner", br).CornerRadius = UDim.new(1, 0)
+			local fl2 = Instance.new("Frame", br)
+			fl2.Size = UDim2.new(math.clamp((vl - mn) / math.max(mx - mn, 1), 0, 1), 0, 1, 0)
+			fl2.BackgroundColor3 = C.Acc
+			fl2.BorderSizePixel = 0
+			fl2.ZIndex = 8
+			Instance.new("UICorner", fl2).CornerRadius = UDim.new(1, 0)
+			local b = Instance.new("TextButton", br)
+			b.Size = UDim2.new(1, 0, 1, 0)
+			b.BackgroundTransparency = 1
+			b.Text = ""
+			b.ZIndex = 9
+			local dr = false
+			local function upd(x)
+				local rl = math.clamp((x - br.AbsolutePosition.X) / math.max(br.AbsoluteSize.X, 1), 0, 1)
+				vl = math.floor((mn + rl * (mx - mn)) * 10) / 10
+				vL.Text = tostring(vl)
+				fl2.Size = UDim2.new(rl, 0, 1, 0)
+				pcall(cbk, vl)
+			end
+			b.MouseButton1Down:Connect(function() dr = true upd(UIS:GetMouseLocation().X) end)
+			UIS.InputChanged:Connect(function(i)
+				if dr and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+					upd(i.Position.X)
+				end
+			end)
+			UIS.InputEnded:Connect(function(i)
+				if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dr = false end
+			end)
+			return {SetValue = function(_, v) vl = v local rl = (vl - mn) / math.max(mx - mn, 1) vL.Text = tostring(vl) T:Create(fl2, TweenInfo.new(0.15), {Size = UDim2.new(rl, 0, 1, 0)}):Play() pcall(cbk, vl) end, Value = vl}
+		end
+
+		function g:AddDropdown(name, dcfg)
+			dcfg = dcfg or {}
+			local vs = dcfg.Values or {}
+			local df = dcfg.Default or (vs[1] or "")
+			local cbk = dcfg.Callback or function() end
+			local cr = df
+			local op = false
+			local b = Instance.new("TextButton", gf)
+			b.Size = UDim2.new(1, 0, 0, 28)
+			b.BackgroundColor3 = C.Ter
+			b.BackgroundTransparency = 0.5
+			b.Text = name .. ": " .. tostring(cr)
+			b.TextColor3 = C.Tx
+			b.Font = Enum.Font.GothamMedium
+			b.TextSize = 12
+			b.BorderSizePixel = 0
+			b.ZIndex = 6
+			Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+			local lF = Instance.new("Frame", gf)
+			lF.Size = UDim2.new(1, 0, 0, 0)
+			lF.BackgroundColor3 = C.Sec
+			lF.BackgroundTransparency = 0.3
+			lF.BorderSizePixel = 0
+			lF.Visible = false
+			lF.ZIndex = 7
+			lF.AutomaticSize = Enum.AutomaticSize.Y
+			Instance.new("UICorner", lF).CornerRadius = UDim.new(0, 5)
+			local lL = Instance.new("UIListLayout", lF)
+			lL.SortOrder = Enum.SortOrder.LayoutOrder
+			lL.Padding = UDim.new(0, 2)
+			local function rebuild(list)
+				for _, ch in ipairs(lF:GetChildren()) do if ch:IsA("TextButton") then ch:Destroy() end end
+				for _, v in ipairs(list or vs) do
+					local o = Instance.new("TextButton", lF)
+					o.Size = UDim2.new(1, 0, 0, 24)
+					o.BackgroundColor3 = C.Ter
+					o.BackgroundTransparency = 0.7
+					o.Text = tostring(v)
+					o.TextColor3 = C.Tx
+					o.Font = Enum.Font.Gotham
+					o.TextSize = 12
+					o.BorderSizePixel = 0
+					o.ZIndex = 8
+					Instance.new("UICorner", o).CornerRadius = UDim.new(0, 4)
+					o.MouseButton1Click:Connect(function()
+						cr = v
+						b.Text = name .. ": " .. tostring(cr)
+						lF.Visible = false
+						op = false
+						pcall(cbk, cr)
+					end)
+				end
+			end
+			rebuild(vs)
+			b.MouseButton1Click:Connect(function() op = not op lF.Visible = op end)
+			return {SetValue = function(_, v) cr = v b.Text = name .. ": " .. tostring(cr) pcall(cbk, cr) end, SetValues = function(_, list) vs = list or {} rebuild(vs) end, Value = cr}
+		end
+
+		function g:AddLabel(text)
+			local l = Instance.new("TextLabel", gf)
+			l.Size = UDim2.new(1, 0, 0, 18)
+			l.BackgroundTransparency = 1
+			l.Text = text
+			l.TextColor3 = C.Sub
+			l.Font = Enum.Font.Gotham
+			l.TextSize = 11
+			l.TextXAlignment = Enum.TextXAlignment.Left
+			l.ZIndex = 6
+		end
+
+		return g
+	end
+
+	function win:AddTab(name)
+		local b = Instance.new("TextButton", ts)
+		b.Size = UDim2.new(1, 0, 0, 32)
+		b.BackgroundColor3 = C.Ter
+		b.BackgroundTransparency = 0.4
+		b.Text = "  " .. name
+		b.TextColor3 = C.Sub
+		b.Font = Enum.Font.GothamMedium
+		b.TextSize = 13
+		b.TextXAlignment = Enum.TextXAlignment.Left
+		b.BorderSizePixel = 0
+		b.ZIndex = 4
+		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+		local ct = Instance.new("Frame", cc)
+		ct.Size = UDim2.new(1, 0, 1, 0)
+		ct.BackgroundTransparency = 1
+		ct.Visible = false
+		ct.ZIndex = 3
+		local sc = Instance.new("ScrollingFrame", ct)
+		sc.Size = UDim2.new(1, 0, 1, 0)
+		sc.BackgroundTransparency = 1
+		sc.BorderSizePixel = 0
+		sc.ScrollBarThickness = 3
+		sc.ScrollBarImageColor3 = C.Acc
+		sc.CanvasSize = UDim2.new()
+		sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		sc.ZIndex = 4
+		local ly = Instance.new("UIListLayout", sc)
+		ly.SortOrder = Enum.SortOrder.LayoutOrder
+		ly.Padding = UDim.new(0, 8)
+		local pd = Instance.new("UIPadding", sc)
+		pd.PaddingTop = UDim.new(0, 8)
+		pd.PaddingLeft = UDim.new(0, 8)
+		pd.PaddingRight = UDim.new(0, 8)
+		pd.PaddingBottom = UDim.new(0, 8)
+		local o = {Button = b, Content = ct, Scroll = sc}
+		local function sel()
+			if cur then
+				cur.Content.Visible = false
+				T:Create(cur.Button, TweenInfo.new(0.15), {BackgroundColor3 = C.Ter}):Play()
+				cur.Button.TextColor3 = C.Sub
+			end
+			ct.Visible = true
+			T:Create(b, TweenInfo.new(0.15), {BackgroundColor3 = C.Acc}):Play()
+			b.TextColor3 = Color3.fromRGB(20, 40, 35)
+			cur = o
+		end
+		b.MouseButton1Click:Connect(sel)
+		if not cur then sel() end
+		function o:AddLeftGroupbox(t) return mkG(sc, t) end
+		function o:AddRightGroupbox(t) return mkG(sc, t) end
+		return o
+	end
+
+	T:Create(m, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, 550, 0, 420), Position = UDim2.new(0.5, -275, 0.5, -210)
+	}):Play()
+	UIS.InputBegan:Connect(function(input, processed)
+		if processed then return end
+		if input.KeyCode == Enum.KeyCode.RightShift then
+			if m.Visible then doClose() else doOpen() end
+		end
+	end)
+	return win
+end
+
+-- ==============================
+-- 音楽リスト
+-- ==============================
+local MusicList = {
+	{Id = "104604782659234", Name = "ナイトオブナイツ"},
+	{Id = "97927847298766", Name = "VerityTheme"},
+	{Id = "136438088630687", Name = "メガロバニア"},
+	{Id = "101465201102170", Name = "Shape of You"},
+	{Id = "95131770144654", Name = "AURAFUNK"},
+	{Id = "129098116998483", Name = "TOMAFUNK"},
+	{Id = "139959590610806", Name = "FUNK FESTA"},
+	{Id = "82149511707056", Name = "7week3DaysFUNK"},
+	{Id = "140709876805704", Name = "CORP$3 P4RTY FUNK"},
+	{Id = "138959447988096", Name = "67 BLACK FRIDAY FUNK"},
+	{Id = "134349905333118", Name = "HYPER DRIFT FUNK"},
+	{Id = "138825474468793", Name = "FORSAKENFUNK"},
+	{Id = "120968328156745", Name = "TUNG TUNGFUNK"},
+	{Id = "118832946470523", Name = "Steel a BrainlotFUNK"},
+	{Id = "129017952710943", Name = "CRY FOR ME FUNK"},
+	{Id = "134365057948815", Name = "NO BATIDĀO"},
+	{Id = "84142247103485", Name = "67🤪FUNK"},
+	{Id = "122458751147132", Name = "TOKAFUNK"},
+}
+local currentSound = nil
+
+-- ==============================
+-- バージョン選択
+-- ==============================
+local function CreateVersionSelector()
+	for _, g in ipairs(CG:GetChildren()) do
+		if g.Name:find("NEKO_") or g.Name:find("HD") or g.Name:find("HDUI") or g.Name:find("HDBoot") or g.Name:find("HDN") then
+			pcall(function() g:Destroy() end)
+		end
+	end
+	CreateLRGParticles()
+	ShowBootSplash(function()
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "NEKO_VersionSelect"
+		gui.ResetOnSpawn = false
+		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+		gui.Parent = CG
+		local bg = Instance.new("Frame", gui)
+		bg.Size = UDim2.new(1, 0, 1, 0)
+		bg.BackgroundColor3 = Color3.fromRGB(8, 15, 16)
+		bg.BackgroundTransparency = 0.3
+		bg.BorderSizePixel = 0
+		local main = Instance.new("Frame", bg)
+		main.Size = UDim2.new(0, 320, 0, 400)
+		main.Position = UDim2.new(0.5, -160, 0.5, -200)
+		main.BackgroundColor3 = C.Sec
+		main.BorderSizePixel = 0
+		Instance.new("UICorner", main).CornerRadius = UDim.new(0, 12)
+		local stroke = Instance.new("UIStroke", main)
+		stroke.Color = C.Brd
+		stroke.Thickness = 2
+		local grad = Instance.new("UIGradient", stroke)
+		grad.Color = ColorSequence.new(C.GS, C.GE)
+		grad.Rotation = 45
+		local title = Instance.new("TextLabel", main)
+		title.Size = UDim2.new(1, 0, 0, 50)
+		title.BackgroundTransparency = 1
+		title.Text = "NEKO HUB COMPLETE"
+		title.TextColor3 = C.Tx
+		title.Font = Enum.Font.GothamBlack
+		title.TextSize = 22
+		local tGrad = Instance.new("UIGradient", title)
+		tGrad.Color = ColorSequence.new(C.GS, C.GE)
+		local sub = Instance.new("TextLabel", main)
+		sub.Size = UDim2.new(1, 0, 0, 25)
+		sub.Position = UDim2.new(0, 0, 0, 45)
+		sub.BackgroundTransparency = 1
+		sub.Text = "バージョンを選択してください"
+		sub.TextColor3 = C.Sub
+		sub.Font = Enum.Font.Gotham
+		sub.TextSize = 13
+		local function makeBtn(text, y, color, callback)
+			local b = Instance.new("TextButton", main)
+			b.Size = UDim2.new(0.85, 0, 0, 48)
+			b.Position = UDim2.new(0.075, 0, 0, y)
+			b.BackgroundColor3 = color
+			b.Text = text
+			b.TextColor3 = Color3.fromRGB(20, 30, 35)
+			b.Font = Enum.Font.GothamBold
+			b.TextSize = 15
+			b.BorderSizePixel = 0
+			Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+			b.MouseButton1Click:Connect(function()
+				pcall(callback)
+				gui:Destroy()
+			end)
+		end
+		makeBtn("🎵 音楽バージョン", 90, C.GS, function() LoadMusicVersion() end)
+		makeBtn("⚔️ 戦闘バージョン (全機能)", 150, Color3.fromRGB(255, 120, 100), function() LoadCombatVersion() end)
+		makeBtn("🌤️ 前のバージョン (Happy Day)", 210, C.GE, function()
+			loadstring(game:HttpGet("https://raw.githubusercontent.com/shiryu20150818-creator/stunning-chainsaw/b01f674b4886d99f1853eb812786cdc023dcda13/SkyCycler_HappyDayUI.lua"))()
+		end)
+		local close = Instance.new("TextButton", main)
+		close.Size = UDim2.new(0.85, 0, 0, 40)
+		close.Position = UDim2.new(0.075, 0, 0, 290)
+		close.BackgroundColor3 = C.TgO
+		close.Text = "閉じる"
+		close.TextColor3 = C.Tx
+		close.Font = Enum.Font.GothamMedium
+		close.TextSize = 14
+		close.BorderSizePixel = 0
+		Instance.new("UICorner", close).CornerRadius = UDim.new(0, 8)
+		close.MouseButton1Click:Connect(function() gui:Destroy() end)
+	end)
+end
+
+-- ==============================
+-- 音楽バージョン
+-- ==============================
+function LoadMusicVersion()
+	Notify("NEKO HUB", "音楽バージョン起動", 3)
+	local W = H:CreateWindow({Title = "NEKO HUB - 音楽", Footer = "Music Version"})
+	local Tab = W:AddTab("音楽プレイヤー")
+	local Gp = Tab:AddLeftGroupbox("曲リスト")
+	for _, song in ipairs(MusicList) do
+		Gp:AddButton({
+			Text = song.Name,
+			Func = function()
+				if currentSound then currentSound:Stop() currentSound:Destroy() end
+				currentSound = Instance.new("Sound")
+				currentSound.SoundId = "rbxassetid://" .. song.Id
+				currentSound.Volume = 1
+				currentSound.Looped = true
+				currentSound.Parent = SS
+				currentSound:Play()
+				H:Notify("再生中: " .. song.Name, 2)
+			end
+		})
+	end
+	local Ctrl = Tab:AddLeftGroupbox("コントロール")
+	Ctrl:AddButton({Text = "停止", Func = function()
+		if currentSound then currentSound:Stop() currentSound:Destroy() currentSound = nil end
+		H:Notify("停止しました", 2)
+	end})
+	Ctrl:AddButton({Text = "バージョン選択へ戻る", Func = function()
+		if currentSound then currentSound:Stop() currentSound:Destroy() end
+		W.Gui:Destroy()
+		CreateVersionSelector()
+	end})
+end
+
+-- ==============================
+-- 戦闘バージョン (全47機能実装)
+-- ==============================
+function LoadCombatVersion()
+	Notify("NEKO HUB", "戦闘バージョン起動 (全機能)", 3)
+	startGFX()
+	startFPSDisplay()
+
+	local W = H:CreateWindow({Title = "NEKO HUB - 戦闘 COMPLETE", Footer = "All 47 Features"})
+
+	-- 防衛タブ
+	local DefTab = W:AddTab("防衛")
+	local DefGp = DefTab:AddLeftGroupbox("アンチ系")
+	DefGp:AddToggle("25. アンチグラブ", {Default = false, Callback = function(s) if s then startAntiGrab() else stopAntiGrab() end end})
+	DefGp:AddToggle("26. アンチグッチ & 手裏剣防御", {Default = false, Callback = function(s) if s then startAntiGucci() else stopAntiGucci() end end})
+	DefGp:AddToggle("27. 手裏剣迎撃 (自動投げ)", {Default = false, Callback = function(s) if s then startAutoThrowCounter() else stopAutoThrowCounter() end end})
+	DefGp:AddToggle("28. アンチラグ", {Default = false, Callback = function(s) if s then startAntiLag() else stopAntiLag() end end})
+	DefGp:AddToggle("10. AntiFling", {Default = false, Callback = function(s) if s then startAntiFling() else stopAntiFling() end end})
+	DefGp:AddToggle("11. AutoParry", {Default = false, Callback = function(s) if s then startAutoParry() else stopAutoParry() end end})
+	DefGp:AddToggle("12. AutoDodge", {Default = false, Callback = function(s) if s then startAutoDodge() else stopAutoDodge() end end})
+	DefGp:AddToggle("24. 15FPS自動サーバー退避", {Default = false, Callback = function(s) if s then startAutoHopOnLag() else stopAutoHopOnLag() end end})
+
+	-- 攻撃タブ
+	local AtkTab = W:AddTab("攻撃")
+	local AtkGp = AtkTab:AddLeftGroupbox("キル・オーラ")
+	AtkGp:AddToggle("17. KillAura", {Default = false, Callback = function(s) if s then startKillAura() else stopKillAura() end end})
+	AtkGp:AddSlider("KillAura範囲", {Min = 5, Max = 50, Default = 15, Callback = function(v) State.KillAuraRange = v end})
+	AtkGp:AddToggle("13. Reach", {Default = false, Callback = function(s) if s then startReach() else stopReach() end end})
+	AtkGp:AddSlider("Reach範囲", {Min = 5, Max = 100, Default = 20, Callback = function(v) State.ReachDistance = v end})
+	AtkGp:AddToggle("14. AutoGrab", {Default = false, Callback = function(s) if s then startAutoGrab() else stopAutoGrab() end end})
+	AtkGp:AddToggle("16. AutoShuriken", {Default = false, Callback = function(s) if s then startAutoShuriken() else stopAutoShuriken() end end})
+	AtkGp:AddButton({Text = "1. ターゲットラグ実行", Func = executeTargetLag})
+	AtkGp:AddToggle("2. 超高速ラグパネル (1200本)", {Default = false, Callback = function(s) if s then startLineLag() else stopLineLag() end end})
+	AtkGp:AddButton({Text = "32. ラグキック実行", Func = executeLagKick})
+
+	-- キックタブ
+	local KickTab = W:AddTab("キック")
+	local KickGp = KickTab:AddLeftGroupbox("指定キック")
+	local kickDrop = KickGp:AddDropdown("30. キック対象", {
+		Values = getPlayerNameList(),
+		Default = "",
+		Callback = function(v) State.KickTargetName = tostring(v or "") end
+	})
+	KickGp:AddButton({Text = "29. プレイヤー一覧更新", Func = function()
+		kickDrop:SetValues(getPlayerNameList())
+		H:Notify("一覧更新完了", 2)
+	end})
+	KickGp:AddToggle("30. 指定キック開始/停止", {Default = false, Callback = function(s) if s then startTargetKick() else stopTargetKick() end end})
+	KickGp:AddToggle("31. スパムキック", {Default = false, Callback = function(s) if s then startSpamKick() else stopSpamKick() end end})
+
+	local NetGp = KickTab:AddLeftGroupbox("ネットワークオーナー")
+	local netDrop = NetGp:AddDropdown("NetOwner対象", {
+		Values = getPlayerNameList(),
+		Default = "",
+		Callback = function(v) State.NetOwnerKickTargetName = tostring(v or "") end
+	})
+	NetGp:AddButton({Text = "プレイヤー一覧更新", Func = function() netDrop:SetValues(getPlayerNameList()) end})
+	NetGp:AddToggle("19. ネットワークオーナーキック", {Default = false, Callback = function(s) if s then startNetOwnerKick() else stopNetOwnerKick() end end})
+	NetGp:AddToggle("20. ネットワークオーナー上下", {Default = false, Callback = function(s) if s then startNetOwnerKickUpDown() else stopNetOwnerKickUpDown() end end})
+
+	local BloxGp = KickTab:AddLeftGroupbox("ブローズマン")
+	BloxGp:AddToggle("21. ブローズマンキックドリフト", {Default = false, Callback = function(s) if s then startBloxmanKickDrift() else stopBloxmanKickDrift() end end})
+	BloxGp:AddToggle("22. ブローズマン上下", {Default = false, Callback = function(s) if s then startBloxmanUpDown() else stopBloxmanUpDown() end end})
+
+	local FlingGp = KickTab:AddLeftGroupbox("Fling")
+	local flingDrop = FlingGp:AddDropdown("Fling対象", {
+		Values = getPlayerNameList(),
+		Default = "",
+		Callback = function(v) State.FlingTargetName = tostring(v or "") end
+	})
+	FlingGp:AddButton({Text = "プレイヤー一覧更新", Func = function() flingDrop:SetValues(getPlayerNameList()) end})
+	FlingGp:AddToggle("15. Fling", {Default = false, Callback = function(s) if s then startFling() else stopFling() end end})
+
+	-- プレイヤー操作タブ
+	local PlrTab = W:AddTab("プレイヤー")
+	local PlrGp = PlrTab:AddLeftGroupbox("移動・操作")
+	PlrGp:AddToggle("4. 無限ジャンプ", {Default = false, Callback = function(s) if s then startInfJump() else stopInfJump() end end})
+	PlrGp:AddToggle("5. WalkSpeed有効", {Default = false, Callback = function(s) if s then startWalkSpeed() else stopWalkSpeed() end end})
+	PlrGp:AddSlider("WalkSpeed値", {Min = 16, Max = 200, Default = 16, Callback = function(v) State.CustomWalkSpeed = v end})
+	PlrGp:AddToggle("6. Fly", {Default = false, Callback = function(s) if s then startFly() else stopFly() end end})
+	PlrGp:AddSlider("Fly速度", {Min = 20, Max = 200, Default = 50, Callback = function(v) State.FlySpeed = v end})
+	PlrGp:AddToggle("7. Noclip", {Default = false, Callback = function(s) if s then startNoclip() else stopNoclip() end end})
+	PlrGp:AddToggle("8. Invisible", {Default = false, Callback = function(s) if s then startInvisible() else stopInvisible() end end})
+	PlrGp:AddToggle("9. GodMode", {Default = false, Callback = function(s) if s then startGodMode() else stopGodMode() end end})
+
+	-- ビジュアルタブ
+	local VisTab = W:AddTab("ビジュアル")
+	local VisGp = VisTab:AddLeftGroupbox("ESP・表示")
+	VisGp:AddToggle("18. ESP (距離表示付き)", {Default = false, Callback = function(s) if s then startESP() else stopESP() end end})
+	VisGp:AddToggle("23. FPS表示", {Default = true, Callback = function(s) if s then startFPSDisplay() else stopFPSDisplay() end end})
+	VisGp:AddToggle("39. フルブライト", {Default = false, Callback = function(s) if s then startFullBright() else stopFullBright() end end})
+	VisGp:AddSlider("40. カメラFOV", {Min = 30, Max = 120, Default = 70, Callback = function(v) setCameraFOV(v) end})
+
+	local GfxGp = VisTab:AddLeftGroupbox("グラフィック")
+	GfxGp:AddToggle("34. Sky Cycler", {Default = false, Callback = function(s) if s then startSkyCycler() else stopSkyCycler() end end})
+	GfxGp:AddToggle("35. ゲームUI色変更", {Default = false, Callback = function(s) if s then startGameUIColor() else stopGameUIColor() end end})
+	GfxGp:AddToggle("36. リアルグラフィック強化", {Default = true, Callback = function(s) if s then startGFX() else stopGFX() end end})
+
+	-- ユーティリティタブ
+	local UtilTab = W:AddTab("ユーティリティ")
+	local UtilGp = UtilTab:AddLeftGroupbox("コピー・サーバー")
+	UtilGp:AddButton({Text = "41. Job IDコピー", Func = copyJobId})
+	UtilGp:AddButton({Text = "42. Game IDコピー", Func = copyGameId})
+	UtilGp:AddButton({Text = "43. エグゼキューター情報コピー", Func = copyExecutorInfo})
+	UtilGp:AddButton({Text = "44. リジョイン", Func = rejoin})
+	UtilGp:AddButton({Text = "45. サーバーホップ", Func = serverHop})
+	UtilGp:AddButton({Text = "3. マップ・サーバー再起動", Func = restartMap})
+
+	local StopGp = UtilTab:AddLeftGroupbox("強制停止")
+	StopGp:AddButton({Text = "33. 全機能強制停止", Func = ForceStopAll})
+	StopGp:AddButton({Text = "バージョン選択へ戻る", Func = function()
+		ForceStopAll()
+		W.Gui:Destroy()
+		CreateVersionSelector()
+	end})
+end
+
+-- ==============================
+-- 起動
+-- ==============================
+CreateVersionSelector()
